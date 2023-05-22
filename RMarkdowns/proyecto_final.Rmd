@@ -1,0 +1,890 @@
+---
+output: pdf_document
+header-includes: 
+  - \usepackage{graphicx}
+  - \usepackage{float}
+---
+
+```{r knit, eval = FALSE, include = FALSE}
+# Este bloque es sólo para que puedas verificar que tu codigo compila. Corre esta línea y después busca en tu directorio el pdf. 
+rmarkdown::render("Glm_vuelos.Rmd", 
+                  output_file = "../doc/reporte_glm.pdf", 
+                  clean = TRUE)
+```
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.pos = 'H')
+```
+
+```{r setup, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(patchwork)
+library(lubridate)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+
+## Cambia el default del tamaño de fuente 
+theme_set(theme_linedraw(base_size = 7.5))
+
+## Cambia el número de decimales para mostrar
+options(digits = 4)
+## Problemas con mi consola en Emacs
+options(pillar.subtle = FALSE)
+options(rlang_backtrace_on_error = "none")
+options(crayon.enabled = FALSE)
+
+## Para el tema de ggplot
+sin_lineas <- theme(panel.grid.major = element_blank(),
+                    panel.grid.minor = element_blank())
+color.itam  <- c("#00362b","#004a3b", "#00503f", "#006953", "#008367", "#009c7b", "#00b68f", NA)
+
+sin_leyenda <- theme(legend.position = "none")
+sin_ejes <- theme(axis.ticks = element_blank(), axis.text = element_blank())
+```
+
+
+# Introducción
+
+En la era moderna, los vuelos comerciales se han convertido en un pilar fundamental 
+de la sociedad, permitiendo a las personas explorar destinos lejanos y conectando 
+a empresas en todo el mundo. Estos vuelos desempeñan un papel crucial en la 
+economía global y son indispensables para el crecimiento y desarrollo de diversas 
+industrias. Se tiene registros de que, durante el año 2019, hubo más de 4,500 
+millones de vuelos comerciales en todo el mundo, y se espera que esta cifra siga 
+aumentando en los próximos años. Un ejemplo destacado es el Aeropuerto Internacional 
+Benito Juárez de la Ciudad de México, que en 2017 atendió a un total de 44.7 
+millones de pasajeros, según datos del Grupo Aeroportuario de la Ciudad de 
+México (GACM).
+
+Sin embargo, a pesar de la importancia de los vuelos comerciales, los retrasos 
+son una realidad frecuente en la industria. Según la Oficina de Estadísticas de 
+Transporte de Estados Unidos, más del 20 % de los vuelos comerciales en ese país 
+experimentaron retrasos en 2017. Esta situación tiene un impacto significativo 
+tanto para los pasajeros como para las aerolíneas, los aeropuertos y las empresas 
+relacionadas, además ed que es innegable que representa un costo sustancial para 
+la economía. De acuerdo con un estudio de la Universidad de California, los 
+retrasos en los vuelos domésticos en los Estados Unidos generaron pérdidas de 
+32.9 mil millones de dólares en 2007, dentro de los cuales están incluídos los 
+gastos por la productividad perdida, el aumento en el consumo de combustible y 
+los gastos adicionales tanto para las aerolíneas como para los pasajeros.
+
+Además de los costos directos, los vuelos retrasados también tienen consecuencias 
+indirectas. Por ejemplo, las cadenas de suministro pueden verse interrumpidas, 
+ocasionando pérdidas en ventas y productividad. Asimismo, los retrasos pueden 
+dificultar que las empresas cumplan con sus plazos y objetivos, lo que se traduce 
+en pérdidas financieras. Ante esta problemática, es crucial implementar estrategias 
+que permitan predecir y prevenir los retrasos en los vuelos comerciales. 
+Esto no solo mejoraría la confiabilidad y eficiencia de los viajes aéreos, sino 
+que también brindaría beneficios tanto a los pasajeros como a las aerolíneas y 
+los aeropuertos.
+
+# Descripción de los datos
+
+Los datos iniciales para desarrollar este proyecto fueron proporcionados por una 
+aerolínea en el año 2021 a uno de los autores de este trabajo. Los datos
+consisten de un conjunto de registros de vuelos nacionales e internacionales 
+durante los años 2017 y 2018 de un aeropuerto latinoamericano, destacando una
+presencia mayoritaria de vuelos de la aerolínea que proporcionó la información. 
+Por motivos de confidencialidad, se omitieron todos los registros asociados con
+dicha aerolínea, por lo que los datos que se usan a lo largo de este proyecto 
+asumen la presencia de registros de vuelos de otras aerolíneas durante los mismos 
+años de operación para el mismo aeropuerto. 
+
+A continuación se presenta una muestra de los datos con los que se cuenta:
+
+```{r original_dataset, echo=FALSE, warning=FALSE, message=FALSE}
+# lectura de los datos
+original_dataset <- read_csv("../datasets/prepared_dataset.csv")
+# eliminación de datos para latam
+original_dataset_filtered <- original_dataset |> 
+                            filter(OPERA != "Grupo LATAM") |>
+                            select(-SIGLAORI,
+                                   -`Ori-I`,
+                                   -`Ori-O`)
+
+original_dataset_filtered <- original_dataset_filtered |>
+                              separate(`Fecha-I`, 
+                                       into = c("Fecha_I", "Hora_I"),
+                                       sep = " ")
+
+original_dataset_filtered <- original_dataset_filtered |>
+                              separate(`Fecha-O`, 
+                                       into = c("Fecha_O", "Hora_O"),
+                                       sep = " ")
+
+original_dataset_filtered <- original_dataset_filtered |> drop_na()
+
+set.seed(229323)
+random_sample <- original_dataset_filtered[sample(1:nrow(original_dataset_filtered), 8), ]
+random_sample[, 1:10] |>
+  kable(caption ="Muestra de los datos 1", align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
+```
+
+```{r original_dataset2, echo=FALSE, warning=FALSE, message=FALSE}
+random_sample[, 11:17] |>
+  kable(caption ="Muestra de los datos 2", align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
+```
+ 
+Como puede observarse, la información con la que se cuenta puede agruparse en
+tres tipos: información sobre la programación del vuelo, información sobre la
+operación del vuelo, e información adicional. La principal diferencia entre las 
+primeras dos es que la información sobre la programación del vuelo corresponde 
+a los datos con los que el vuelo es anunciado ante los clientes, mientras que la 
+segunda son los datos con los que el vuelo fue registrado para su funcionamiento 
+y seguimiento antes del despegue. 
+
+Respecto a la información sobre la programación del vuelo, se cuenta con la fecha 
+y hora en la que cada vuelo fue programado (**Fecha_I** y **Hora_I**), el número 
+de vuelo (**Vlo-I**), las siglas de la ciudad de destino (**Des-I**), y con las 
+siglas de la aerolínea (**Emp-I**). Por otro lado, respecto a la información sobre 
+la operación del vuelo, se cuenta con la fecha y hora en la que cada vuelo realizó 
+el despegue (**Fecha-O** y **Hora_O**), el número de vuelo con el que operó 
+(**Vlo-O**), las siglas de la ciudad destino (**Des-O**), y las siglas de la 
+aerolínea que llevó a cabo el vuelo (**Emp-O**). Por último, se cuenta con 
+información adicional sobre el **Día**, **Mes** y **Año** (en formato numérico) 
+en los que el vuelo se llevó a cabo, el día de la semana nominal (**DIANOM**), 
+el tipo de vuelo que sirve para diferenciar vuelos nacionales de los internacionales 
+(**TIPOVUELO**), y el nombre de la ciudad de destino (**SIGLADES**). 
+Es importante recordar que todos los vuelos de los que se tiene registro 
+corresponden al mismo aeropuerto de origen. 
+
+Considerando la descripción anterior, se procede a presentar un análisis 
+exploratorio de la información para realizar su respectivo tratamiento
+y limpieza. Gracias al resumen presentado en la siguiente tabla, podemos observar
+el número de vuelos con los que se cuenta después de realizar la anonimización
+de la aerolínea emisora de la información. 
+
+```{r year, echo=FALSE, warning=FALSE, message=FALSE}
+original_dataset_filtered |> 
+  group_by(AÑO) |> 
+  summarise(`Número de vuelos` = n(), 
+            Porcentaje = n()/nrow(original_dataset_filtered)*100) |>
+  mutate(Año = AÑO) |>
+  select(Año, `Número de vuelos`, Porcentaje) |>
+  kable(caption ="Número de vuelos por año", align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
+```
+
+```{r filter_year, echo=FALSE, warning=FALSE, message=FALSE}
+clean_df <- original_dataset_filtered |> filter(AÑO == 2017) |> select(-AÑO)
+```
+
+Como se describió al inicio de esta sección, contamos con información sobre el
+número identificador del vuelo con el que se anunció comercialmente y con el que
+se llevó a cabo la operación, por lo tanto resulta interesante conocer cuántos 
+cambios de este número existieron durante todo el año. 
+
+```{r vlo_IO, echo=FALSE, warning=FALSE, message=FALSE}
+clean_df |> 
+  mutate(`¿Cambió?` = ifelse(`Vlo-I` == `Vlo-O`, "No cambió", "Cambió")) |> 
+  group_by(`¿Cambió?`) |> 
+  summarise(`Número de vuelos` = n(), Porcentaje = n()/nrow(clean_df)*100) |>
+  kable(caption ="Cantidad de cambios de número de vuelo", align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
+```
+
+Gracias a la tabla anterior se puede observar que la proporción de vuelos que 
+registraron un cambio en su número de vuelo corresponde a una mínima parte del 
+total de todos los datos, por lo que podemos prescindir de elos y trabajar 
+únicamente con los vuelos que no presentaron cambios en sus números. Esta decisión 
+nos ayudará posteriormente en el modelado de la solución, ya que, al asumir que 
+todos los vuelos tuvieron el mismo número de programación y de operación, se 
+están eliminando dos columnas de información, lo que ayuda a reducir la complejidad 
+del problema. 
+
+```{r filter_vlo_IO, echo=FALSE, warning=FALSE, message=FALSE}
+clean_df <- clean_df |> filter(`Vlo-I` == `Vlo-O`) |> select(-c(`Vlo-I`, `Vlo-O`))
+```
+
+También se pueden proporcionar elementos visuales que ayuden a entender el problema
+con el que se cuenta, además de comprender la distribución de los datos para
+ciertas variables de interés. 
+
+```{r count_flights_by_dia, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Distribución de la cantidad de vuelos internacionales por día ordinal", fig.align='center', fig.width=6.2, fig.height=3.5}
+clean_df |> group_by(DIA) |>
+  summarise(count = n()) |>
+  ggplot(aes(x=DIA, y=count)) + 
+  geom_histogram(stat = "identity", fill='salmon', bins=31) +
+  ggtitle("Cantidad de vuelos por día del mes del año 2017") +
+  xlab("Número de día") +
+  ylab("Número de vuelos") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, vjust = 1.5)) +
+  sin_leyenda +
+  sin_lineas +
+  scale_y_continuous(limits = c(0, 950), breaks = seq(0, 950, by = 100)) +
+  scale_x_continuous(limits = c(0, 32), breaks = seq(0, 32, by = 1))
+```
+
+De la gráfica anterior se puede observar que la distribución del número de vuelos
+por día del mes es bastante similar para todos, con excepción de los últimos dos
+días. Este comportamiento es el esperado si consideramos que no todos los meses
+cuentan con 31 días, por lo que se entiende que es normal que exista un desbalance
+para el último día de la gráfica. Por otro lado, el comportamiento para los demás
+días es bastante similar, ya que cantidad de vuelos para cada uno de ellos se
+encuentra en el intervalo de 800 a 900, sin embargo no existe una varianza en 
+la cantidad de vuelos que sugiera que pudiera ser una variable de interés para
+poder predecir un posible retraso. 
+
+De forma análoga, podemos proporcionar un análisis sobre la distribución del
+número de vuelos por día de la semana con la intención de encontrar algún patrón
+en la información, o en su defecto, algún comportamiento para ciertos días
+específicos que nos permitan considerar los días como una variable importante
+a la hora de predecir retrasos para vuelos. 
+
+
+```{r count_flights_by_dianom, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Distribución de la cantidad de vuelos por día de la semana", fig.align='center', fig.width=6.2, fig.height=3.5}
+orden_dias <- c("Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo")
+clean_df$DIANOM <- factor(clean_df$DIANOM, levels = orden_dias)
+
+clean_df |> group_by(DIANOM) |>
+  summarise(count = n()) |>
+  ggplot(aes(x=DIANOM, y=count, fill=DIANOM)) + 
+  geom_histogram(stat = "identity") +
+  ggtitle("Cantidad de vuelos internacionales por día de la semana del año 2017") +
+  xlab("Día") +
+  ylab("Número de vuelos") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, vjust = 1.5)) +
+  sin_lineas +
+  sin_leyenda
+```
+
+Como puede observarse de la gráfica anterior, la distribución para todos los días
+es bastante similar con excepción del día sábado. En general se puede deducir
+que existe un ligero aumento de afluencia de vuelos para los días lunes y viernes,
+mientras que los días martes y miércoles son los días que presentan un ligero
+decremento. Esperaríamos tener una mayor claridad sobre qué días hay más vuelos
+en el año, ya que pudiera ser un indicio de que ante mayor afluencia de vuelos 
+la probabilidad de retraso aumentara, sin embargo este comportamiento no es claro
+por sí solo en la gráfica anterior. A pesar de ello, debido al comportamiento
+de la afluencia de vuelos para el día sábado y el contexto del problema, esta 
+variable pudiera ser de ayuda para predecir el atraso de vuelos, por lo que
+será considerada. 
+
+Otra gráfica que resulta pertinente visualizar es la distribución de vuelos por
+mes, buscando capturar temporadas altas y bajas, vacaciones, o algún otro patrón
+de interés. Estos comportamientos se muestran satisfactoriamente en la 
+siguiente gráfica, donde la distribución de vuelos es la esperada considerando 
+el contexto del problema. En general puede observarse que existe una mayor 
+afluencia de vuelos durante los meses de octubre a diciembre, lo que es 
+consistente con las festividades mundiales y los fenómenos denominados
+"temporadas altas". Por otro lado, se puede observar que los meses donde hay
+menor afluencia de vuelos es durante los meses de febrero a junio, lo cual también
+es consistente con los meses donde se les denomina de "temporadas bajas". Podemos
+concluir que esta variable sí es de interés para nuestro análisis, ya que
+ofrece bastante información que puede ser utilizada durante nuestro modelado. 
+
+```{r count_flights_by_mes, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Distribución de la cantidad de vuelos por mes", fig.align='center', fig.width=6.2, fig.height=3.5}
+orden_meses <- c("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", 
+                 "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
+
+aux_clean_df <- clean_df
+
+aux_clean_df$MES <- orden_meses[month(aux_clean_df$MES)]
+aux_clean_df$MES <- factor(aux_clean_df$MES, levels = orden_meses)
+
+aux_clean_df |> group_by(MES) |>
+  summarise(count = n()) |>
+  ggplot(aes(x=MES, y=count, fill=MES)) + 
+  geom_histogram(stat = "identity") +
+  ggtitle("Cantidad de vuelos por mes del año 2017") +
+  xlab("Mes") +
+  ylab("Número de vuelos") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, vjust = 1.5)) +
+  sin_lineas +
+  sin_leyenda
+```
+
+También resulta pertinente analizar la proporción de vuelos nacionales e 
+internacionales que conforman los datos disponibles. Gracias a la siguiente 
+tabla que detalla dicho análisis, podemos concluir que la proporción de vuelos 
+nacionales e internacionales es bastante similar, lo cual no nos proporciona 
+suficiente información para poder considerarla como una variable de interés 
+al momento de predecir los retrasos en vuelos. Sin embargo, un problema 
+particular a resolver sería la predicción de restrasos en vuelos internacionales, 
+ya que, de acuerdo con la experiencia, este tipo de vuelos son los que pudieran 
+ser más caóticos y podrían incurrir en una mayor cantidad de pérdidas monetarias 
+para las aerolíneas. De esta manera, los siguientes análisis y procedimientos
+subsecuentes consideran únicamente la presencia de vuelos internacionales, 
+para los cuales también resulta pertinente obtener un nuevo resumen estadístico 
+y visual. 
+
+```{r count_flights_by_type, echo=FALSE, warning=FALSE, message=FALSE}
+clean_df |> 
+  group_by(TIPOVUELO) |> 
+  summarise(`Número de vuelos` = n(),
+            `Proporción` = n()/nrow(clean_df)) |>
+  mutate(TIPOVUELO = ifelse(TIPOVUELO == 'I', "Internacional", "Nacional")) |>
+  kable(caption ="Número de vuelos internacionales", align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
+```
+
+## Análisis de vuelos internacionales
+
+```{r only_international_flights, echo=FALSE, warning=FALSE, message=FALSE}
+clean_df <- clean_df |> 
+  filter(TIPOVUELO == 'I') 
+
+clean_df |>
+  group_by(TIPOVUELO) |> 
+  summarise(`Número de vuelos` = n()) |>
+  mutate(TIPOVUELO ="Internacional") |>
+  kable(caption ="Número de vuelos internacionales", align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
+```
+
+A pesar de haber realizado un recorte del total de información disponible, aún
+se cuenta con bastantes registros para realizar la implemetación de un modelo
+para predicción de retrasos para vuelos internacionales. Sin embargo, es 
+necesario conocer las distribuciones de estos vuelos para verificar si los
+patrones anteriormente vistos siguen siendo los mismos, o en su defecto 
+identificar nuevos patrones de interés. 
+
+```{r only_international_flights2, echo=FALSE, warning=FALSE, message=FALSE}
+final_df <- clean_df |> select(-TIPOVUELO)
+```
+
+```{r count_flights_by_dia_int, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Distribución de la cantidad de vuelos internacionales por día ordinal", fig.align='center', fig.width=6.2, fig.height=3.5}
+final_df |> group_by(DIA) |>
+  summarise(count = n()) |>
+  ggplot(aes(x=DIA, y=count)) + 
+  geom_histogram(stat = "identity", fill='salmon', bins=31) +
+  ggtitle("Cantidad de vuelos internacionales por día del mes del año 2017") +
+  xlab("Número de día") +
+  ylab("Número de vuelos") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, vjust = 1.5)) +
+  sin_leyenda +
+  sin_lineas +
+  scale_y_continuous(limits = c(0, 500), breaks = seq(0, 500, by = 100)) +
+  scale_x_continuous(limits = c(0, 32), breaks = seq(0, 32, by = 1))
+```
+
+```{r count_flights_by_dianom_int, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Distribución de la cantidad de vuelos internacionales por día de la semana", fig.align='center', fig.width=6.2, fig.height=3.5}
+orden_dias <- c("Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo")
+final_df$DIANOM <- factor(final_df$DIANOM, levels = orden_dias)
+
+final_df |> group_by(DIANOM) |>
+  summarise(count = n()) |>
+  ggplot(aes(x=DIANOM, y=count, fill=DIANOM)) + 
+  geom_histogram(stat = "identity") +
+  ggtitle("Cantidad de vuelos internacionales por día de la semana del año 2017") +
+  xlab("Día") +
+  ylab("Número de vuelos") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, vjust = 1.5)) +
+  sin_lineas +
+  sin_leyenda
+```
+
+
+```{r count_flights_by_mes_int, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Distribución de la cantidad de vuelos internacionales por mes", fig.align='center', fig.width=6.2, fig.height=3.5}
+orden_meses <- c("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", 
+                 "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
+
+aux_clean_df <- final_df
+
+aux_clean_df$MES <- orden_meses[month(aux_clean_df$MES)]
+aux_clean_df$MES <- factor(aux_clean_df$MES, levels = orden_meses)
+
+aux_clean_df |> group_by(MES) |>
+  summarise(count = n()) |>
+  ggplot(aes(x=MES, y=count, fill=MES)) + 
+  geom_histogram(stat = "identity") +
+  ggtitle("Cantidad de vuelos internacionales por mes del año 2017") +
+  xlab("Mes") +
+  ylab("Número de vuelos") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, vjust = 1.5)) +
+  sin_lineas +
+  sin_leyenda
+```
+
+Afortunadamente se puede concluir que un análisis para vuelos internacionales
+resulta más conveniente, ya que en las gráficas anteriores puede observarse que
+los patrones iniciales de la información se mantuvieron, además de que se logró
+capturar nuevos patrones que son de mayor relevancia. Respecto a la distribución
+de vuelos por día del mes, se mantiene el mismo comportamiento en la distribución 
+de los datos, denotando que la cantidad de vuelos para los últimos dias de cada 
+mes es menor en comparación con el resto. Respecto a la distribución de vuelos 
+por día de la semana, la distribución se mantuvo bastante similar, además de que
+el desbalance que había para el día sabado se corrigió. Por último, respecto
+a la distribución de vuelos por mes, se puede observar que se captura de mejor
+manera las temporadas altas y bajas para los meses anteriormente analizados, además
+de que en esta ocasión los meses de junio y julio presentan una alta afluencia, lo
+cual es completamente entendible considerando las épocas de vacaciones de verano.
+
+## Distribución de vuelos por aerolínea
+
+Un último análisis que resulta importante considerar es la distribución de vuelos
+por aerolínea, de modo que se pueda entender qué aerolíneas son las que tienen
+mayor presencia de vuelos internacionales y cuáles son susceptibles a algún
+retraso en sus operaciones. Esta información puede observarse en la siguiente
+gráfica, donde se muestra el número total de registros de múltiples aerolíneas
+sin embargo se puede destacar que la mayor cantidad de registros se concentra 
+entre las aerolíneas *Aerolíneas Argentinas*, *Copa Air* y *Sky Airline*, lo cual 
+podría contaminar el modelo a implementar. 
+
+Teniendo en cuenta esta distribución, se tomó la decisión de eliminar aquellos
+registros de vuelos que fueron operados por las aerolíneas con mayor presencia,
+de modo que se mantuvieran todas aquellas aerolíneas con una proporción menor de
+registros en la base de datos. 
+
+```{r count_flights_by_opera, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Distribución de la cantidad de vuelos internacionales por aerolínea", fig.align='center', fig.width=6.2, fig.height=3.5}
+final_df |> group_by(OPERA) |>
+  summarise(count = n()) |>
+  ggplot(aes(x=OPERA, y=count, fill=OPERA)) + 
+  geom_histogram(stat = "identity") +
+  ggtitle("Cantidad de vuelos internacionales por aerolínea del año 2017") +
+  xlab("Día") +
+  ylab("Número de vuelos") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, vjust = 1.5)) +
+  sin_lineas +
+  sin_leyenda
+```
+
+# Ingeniería de variables
+
+Después del análisis exploratorio de los datos y de las variables con las que se
+cuenta, un paso adicional para favorecer el modelado de la solución es la creación
+de variables auxiliares y de nuestra variable objetivo. Para este procedimiento
+es necesario considerar el contexto del problema a resolver y la información
+con la que se cuenta, por lo tanto en las subsecciones siguiente se incluye
+una justificación de cada una de las variables creadas y el método para crearlas.
+
+## Temporada alta
+
+Como pudo observarse en el análisis exploratorio, existe una tendencia muy clara
+sobre los meses donde la afluencia de vuelos es mayor y donde no lo es. Esto
+puede traducirse en temporadas altas y bajas para las aerolíneas, y la experiencia
+sugiere que ante una mayor afluencia de vuelos y de personas, la probabilidad de 
+un retraso incrementa. Por lo tanto, la primer variable auxiliar creada fue la
+variable **temporada_alta**, la cual fue creada a partir de algunos casos 
+particulares que la aerolínea original proporcionó de acuerdo con la experiencia.
+
+- Si la fecha del vuelo se encuentra entre el 1 de enero y el 3 de marzo, es **temporada alta**.
+- Si la fecha del vuelo se encuentra entre el 15 de julio y el 30 de julio, es **temporada alta**.
+- Si la fecha del vuelo se encuentra entre el 11 de septiembre y el 30 de septiembre, es **temporada alta**.
+- Si la fecha del vuelo se encuentra entre el 15 de diciembre y el 31 de diciembre, es **temporada alta**.
+- Cualquier otro caso no considerado, es **temporada baja**.
+
+Un resumen de la distribución de vuelos después de la creación de esta variable 
+se muestra en la siguiente tabla.
+
+```{r synthetic_features_temp_alta, echo=FALSE, warning=FALSE, message=FALSE}
+temp_alta_func <- function(fecha){
+  res = 0
+  march = as.POSIXct('2017-03-03', format = '%Y-%m-%d')
+  july_15 = as.POSIXct('2017-07-15', format = '%Y-%m-%d')
+  july_31 = as.POSIXct('2017-07-31', format = '%Y-%m-%d')
+  september_11 = as.POSIXct('2017-09-11', format = '%Y-%m-%d')
+  september_30 = as.POSIXct('2017-09-30', format = '%Y-%m-%d')
+  december = as.POSIXct('2017-12-15', format = '%Y-%m-%d')
+  fecha = as.POSIXct(fecha, format = '%Y-%m-%d')
+  if (fecha <= march){
+    res = 1
+  }
+  else if(july_15 <= fecha && fecha <= july_31){
+    res = 1
+  }
+  else if(september_11 <= fecha && fecha <= september_30){
+    res = 1
+  }
+  else if(fecha >= december){
+   res = 1 
+  }
+  res
+}
+
+vuelos <- final_df |> mutate(temporada_alta = map_int(Fecha_I, temp_alta_func))
+```
+
+```{r summary_temporada_alta, echo=FALSE, warning=FALSE, message=FALSE}
+vuelos |> 
+  group_by(temporada_alta) |> 
+  summarise(`Número de vuelos` = n()) |>
+  mutate(Temporada = temporada_alta) |>
+  mutate(Temporada = ifelse(Temporada == 1, "Alta", "Baja")) |>
+  select(Temporada, `Número de vuelos`) |>
+  kable(caption ="Resumen del tipo de temporada de los vuelos", align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
+```
+
+## Diferencia en minutos
+
+Para definir si un vuelo se atrasó o no se debe considerar la fecha y hora con 
+las que se anunció a los clientes y la fecha y hora en los que efectivamente
+el vuelo operó. Por lo tanto, la variable **diff_min** fue creada considerando
+la diferencia absoluta en minutos entre la hora de partida y la hora anunciada,
+lo cual nos permite tener una mayor idea sobre la gravedad del retraso que sufrió
+un vuelo. 
+
+```{r synthetic_features_diff_min, echo=FALSE, warning=FALSE, message=FALSE}
+calculate_diff_min <- function(Hora_I, Hora_O){
+  Hora_I <- as.POSIXct(Hora_I, format = "%H:%M:%S")
+  Hora_O <- as.POSIXct(Hora_O, format = "%H:%M:%S")
+  abs(as.numeric(difftime(Hora_O, Hora_I, units = "mins")))
+}
+
+vuelos <- vuelos |> mutate(diff_min = pmap_int(list(Hora_I, Hora_O), calculate_diff_min))
+```
+
+## Periodo del día
+
+Otra variable que puede ayudar en el modelado de la solución es conocer para qué
+momento del día se había anunciado el vuelo. De acuerdo con la experiencia, se sabe
+que durante la noche existe una menor afluencia de vuelos en comparación con los
+que se operan durante la mañana o la tarde, sin embargo es necesario tener definidos
+los horarios en los que se consideran dichos periodos del día. De acuerdo con
+la aerolínea original, los periodos del día se definen de acuerdo con las siguientes
+condiciones:
+
+- **Mañana:** Si el vuelo fue anunciado entre las **5:00 am** y las **11:59 am**.
+- **Tarde:** Si el vuelo fue anunciado entre las **12:00 pm** y las **18:59 pm**.
+- **Noche:** Si el vuelo fue anunciado entre las **19:00 pm** y las **4:59 am**.
+
+Por lo tanto, se procedió a generar la variable auxiliar **periodo_dia** considerando
+las reglas anteriores. La siguiente tabla muestra un resumen de la distribución
+de vuelos para dicha variable.
+
+```{r synthetic_features_periodo_dia, echo=FALSE, warning=FALSE, message=FALSE}
+calculate_periodo_dia <- function(Hora_I){
+  res = "noche"
+  manana_lower = as.POSIXct("05:00:00", format = "%H:%M:%S")
+  manana_upper = as.POSIXct("11:59:00", format = "%H:%M:%S")
+  tarde_lower = as.POSIXct("12:00:00", format = "%H:%M:%S")
+  tarde_upper = as.POSIXct("18:59:00", format = "%H:%M:%S")
+  Hora_I = as.POSIXct(Hora_I, format = "%H:%M:%S")
+  if(manana_lower <= Hora_I && Hora_I <= manana_upper){
+    res = "mañana"
+  }
+  else if(tarde_lower <= Hora_I && Hora_I <= tarde_upper){
+    res = "tarde"
+  }
+  res
+}
+
+vuelos <- vuelos |> mutate(periodo_dia = map_chr(Hora_I, calculate_periodo_dia))
+```
+
+```{r summary_periodo_dia, echo=FALSE, warning=FALSE, message=FALSE}
+vuelos |> 
+  group_by(periodo_dia) |> 
+  summarise(`Número de vuelos` = n(), Porcentaje = n()/nrow(vuelos)) |>
+  mutate(`Periodo del día` = periodo_dia) |>
+  select(`Periodo del día`, `Número de vuelos`, Porcentaje) |>
+  kable(caption ="Resumen del número de vuelos por periodo del día", 
+        align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
+```
+
+# Variable objetivo: Atraso 15 minutos
+
+Considerando que el resultado esperado con este proyecto es predecir si un vuelo
+se retrasará o no con base en ciertas variables que lo describen, el último paso
+en la ingeniería de variables fue definir la varible de referencia o la variable
+objetivo. De acuerdo con la aerolínea original y su experiencia, un vuelo puede
+considerarse como retrasado si la diferencia en minutos entre su hora de anuncio
+y su hora de salida es igual o mayor a 15 minutos, por lo tanto se tomó de apoyo
+la variable **diff_min** también creada en este proceso de ingeniería de variables
+para crear nuestra variable objetivo llamada **atraso 15**. Esta variable
+toma únicamente el valor de 1 si el vuelo se retrasó con base en la descripción
+anterior, en caso contrario toma el valor de 0. 
+
+Un resumen de la distribución de vuelos restrasados y no retrasados se puede
+observar en la siguiente tabla, así como la proporción correspondiente que
+representa del total de vuelos.
+
+```{r synthetic_features_atraso_15, echo=FALSE, warning=FALSE, message=FALSE}
+vuelos <- vuelos |> mutate(atraso_15 = ifelse(diff_min >= 15, 1, 0))
+```
+
+```{r summary_atraso_15, echo=FALSE, warning=FALSE, message=FALSE}
+vuelos |> 
+  group_by(atraso_15) |> 
+  summarise(`Número de vuelos` = n(), Porcentaje = n()/nrow(vuelos)) |>
+  mutate(`Atraso 15 minutos` = atraso_15) |>
+  mutate(`Atraso 15 minutos` = ifelse(`Atraso 15 minutos` == 1, "Atraso", "No atraso")) |>
+  select(`Atraso 15 minutos`, `Número de vuelos`, Porcentaje) |>
+  kable(caption ="Resumen del número de vuelos retrasados y en tiempo", 
+        align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
+```
+
+```{r save_synthetic_2, eval=FALSE, incluse=FALSE}
+write.csv(vuelos, "../datasets/synthetic_features2.csv")
+```
+
+```{r include = FALSE, eval=FALSE}
+dataf <- read.csv("../datasets/synthetic_features.csv")
+
+dataf$Fecha.I <- as.POSIXct(dataf$Fecha.I, format = "%Y-%m-%d")
+dataf$Fecha.O <- as.POSIXct(dataf$Fecha.O, format = "%Y-%m-%d")
+
+params <- c(dataf$OPERA == 'Aeromexico' | dataf$OPERA == 'Air Canada' | dataf$OPERA == 'Air France' | dataf$OPERA == 'American Airlines' | dataf$OPERA == 'Avianca' | dataf$OPERA == 'British Airways' | dataf$OPERA == 'Delta Air' | dataf$OPERA == 'Iberia' | dataf$OPERA == 'K.L.M.' | dataf$OPERA == 'United Airlines')
+
+lim_minutos <- 15
+
+vuelos <- subset(dataf, select = -X) %>%
+  filter(params) %>%
+  mutate(dif_day = as.numeric(difftime(Fecha.O, Fecha.I, units = "days")),
+         dif_day = str_replace(dif_day, "days", ""),
+         dif_min_HoraO = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), Hora.O)), as.POSIXct(paste(Sys.Date(), "00:00:00")), units = "mins")),
+         dif_min_HoraI = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), "24:00:00")), as.POSIXct(paste(Sys.Date(), Hora.I)), units = "mins")),
+         suma_dif_min = dif_min_HoraO + dif_min_HoraI) %>%
+  mutate(dif_minutos = ifelse(dif_day == "0", dif_min, suma_dif_min),
+         dif_minutos = str_replace(dif_minutos, "mins", ""),
+         dif_minutos = as.numeric(dif_minutos)) %>%
+  mutate(atraso = ifelse(dif_minutos > lim_minutos, 1, 0)) %>%
+  mutate(aerolinea = OPERA) %>%
+  select(-c(1:8),-dif_min_HoraO, -dif_min_HoraI, -suma_dif_min, -TIPOVUELO,-dif_min,-atraso_15)
+```
+
+```{r eval=FALSE, include=FALSE}
+# Filtramos la base de datos con 10 aerolineas y quito columna ids 
+
+dataf <- read.csv("../datasets/synthetic_features.csv")
+
+dataf$Fecha.I <- as.POSIXct(dataf$Fecha.I, format = "%Y-%m-%d")
+dataf$Fecha.O <- as.POSIXct(dataf$Fecha.O, format = "%Y-%m-%d")
+
+params <- c(dataf$OPERA == 'Aeromexico' | dataf$OPERA == 'Air Canada' | dataf$OPERA == 'Air France' | dataf$OPERA == 'American Airlines' | dataf$OPERA == 'Avianca' | dataf$OPERA == 'British Airways' | dataf$OPERA == 'Delta Air' | dataf$OPERA == 'Iberia' | dataf$OPERA == 'K.L.M.' | dataf$OPERA == 'United Airlines')
+
+lim_minutos <- 15
+
+vuelos <- subset(dataf, select = -X) %>%
+  filter(params) %>%
+  mutate(dif_day = as.numeric(difftime(Fecha.O, Fecha.I, units = "days")),
+         dif_day = str_replace(dif_day, "days", ""),
+         dif_min_HoraO = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), Hora.O)), as.POSIXct(paste(Sys.Date(), "00:00:00")), units = "mins")),
+         dif_min_HoraI = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), "24:00:00")), as.POSIXct(paste(Sys.Date(), Hora.I)), units = "mins")),
+         suma_dif_min = dif_min_HoraO + dif_min_HoraI) %>%
+  mutate(dif_minutos = ifelse(dif_day == "0", dif_min, suma_dif_min),
+         dif_minutos = str_replace(dif_minutos, "mins", ""),
+         dif_minutos = as.numeric(dif_minutos)) %>%
+  mutate(atraso = ifelse(dif_minutos > lim_minutos, 1, 0)) %>%
+  mutate(aerolinea = OPERA) %>%
+  select(-c(1:8),-dif_min_HoraO, -dif_min_HoraI, -suma_dif_min, -TIPOVUELO,-dif_min,-atraso_15)
+
+```
+
+Base para modelo
+```{r eval=FALSE, include=FALSE}
+meses <- c("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+           "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
+dia <- c("Lunes","Martes","Miercoles","Jueves","Viernes","Sabado","Domingo")
+pdia <- c("mañana","tarde","noche")
+aerol <- c("Aeromexico","Air Canada","Air France","American Airlines",
+           "Avianca","British Airways","Delta Air","Iberia","K.L.M.","United Airlines")
+
+#Tener todas las variables del modelo en numericas iniciando en 1 excepto la var objetivo va de 0 a 1
+vuelos_modelo <- vuelos |>
+  mutate(temporada_alta = recode(temporada_alta, `1` = 2, `0` = 1))|>
+  mutate(MES = recode(MES, !!!setNames(1:12, meses))) |>
+  mutate(DIANOM = recode(DIANOM, !!!setNames(1:7, dia))) |>
+  mutate(periodo_dia = recode(periodo_dia, !!!setNames(1:3, pdia))) |>
+  mutate(aerolinea = recode(aerolinea, !!!setNames(1:10, aerol)))
+
+head(vuelos_modelo)
+```
+
+1. Analisis de la base de datos
+
+```{r eval=FALSE, include=FALSE}
+vuelos_tbl <- vuelos |> 
+  group_by(OPERA) |>
+  summarise(num_vuelos=n(),num_atrasos=sum(atraso),
+            pct_atrasos=round(mean(atraso)*100,1),
+            min_atrasos=round(mean(dif_minutos),1),
+            .groups = 'drop')
+```
+
+
+GrafiCas eda
+```{r eval=FALSE, include=FALSE}
+#GRAFICA TOTAL VUELOS
+vuelos_tbl$resaltado <- ifelse(vuelos_tbl$OPERA == "Air Canada", "Resaltado", "Normal")
+vuelos_tbl <- vuelos_tbl[order(-vuelos_tbl$num_vuelos), ]
+# Crear el gráfico de barras con ggplot y geom_bar
+ggplot(vuelos_tbl, aes(x = reorder(OPERA, num_vuelos), y = num_vuelos, fill = resaltado)) +
+  geom_bar(stat = "identity",color="black") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "Aerolínea", y = "# Vuelos") +
+  
+  # Cambiar los ejes vertical y horizontal
+  theme(axis.text.x = element_text(hjust = 0, color = "black"),
+        axis.text.y = element_text(color = "black"),
+        axis.title.y = element_text(color = "black"), 
+        legend.position = "none") +
+  
+  # Agregar etiquetas con el valor puntual en las barras
+  geom_text(aes(label = num_vuelos), color = "white", hjust = 1.5)+
+  scale_fill_manual(values = c("Resaltado" = "maroon4", "Normal" = "steelblue")) +
+  sin_lineas
+```
+
+
+```{r eval=FALSE, include=FALSE}
+#GRAFICA TOTAL ATRASOS
+vuelos_tbl <- vuelos_tbl[order(-vuelos_tbl$num_atrasos), ]
+# Crear el gráfico de barras con ggplot y geom_bar
+ggplot(vuelos_tbl, aes(x = reorder(OPERA, num_atrasos), y = num_atrasos, fill = resaltado)) +
+  geom_bar(stat = "identity", color="black") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "Aerolínea", y = "# Retrasos") +
+  
+  # Cambiar los ejes vertical y horizontal
+  theme(axis.text.x = element_text(hjust = 0, color = "black"),
+        axis.text.y = element_text(color = "black"),
+        axis.title.y = element_text(color = "black"), 
+        legend.position = "none") +
+  
+  # Agregar etiquetas con el valor puntual en las barras
+  geom_text(aes(label = num_atrasos), color = "white", hjust = 1.1)+
+  scale_fill_manual(values = c("Resaltado" = "maroon4", "Normal" = "steelblue"))
+```
+
+```{r eval=FALSE, include=FALSE}
+#GRAFICA % ATRASOS
+vuelos_tbl <- vuelos_tbl[order(-vuelos_tbl$pct_atrasos), ]
+# Crear el gráfico de barras con ggplot y geom_bar
+ggplot(vuelos_tbl, aes(x = reorder(OPERA, pct_atrasos), y = pct_atrasos, fill = resaltado)) +
+  geom_bar(stat = "identity",color="black") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "Aerolínea", y = "% Vuelos atrasados") +
+  
+  # Cambiar los ejes vertical y horizontal
+  theme(axis.text.x = element_text(hjust = 0, color = "black"),
+        axis.text.y = element_text(color = "black"),
+        axis.title.y = element_text(color = "black"), 
+        legend.position = "none") +
+  
+  # Agregar etiquetas con el valor puntual en las barras
+  geom_text(aes(label = pct_atrasos), color = "white", hjust = 1.3)+
+  scale_fill_manual(values = c("Resaltado" = "maroon4", "Normal" = "steelblue"))
+```
+
+```{r eval=FALSE, include=FALSE}
+#GRAFICA TIEMPO PROMEDIO ATRASOS
+vuelos_tbl <- vuelos_tbl[order(-vuelos_tbl$min_atrasos), ]
+
+# Crear el gráfico de barras con ggplot y geom_bar
+ggplot(vuelos_tbl, aes(x = reorder(OPERA, min_atrasos), y = min_atrasos, fill = resaltado)) +
+  geom_bar(stat = "identity", color="black") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "Aerolínea", y = "Tiempo promedio de los atrasos en min.") +
+  
+  # Cambiar los ejes vertical y horizontal
+  theme(axis.text.x = element_text(hjust = 0, color = "black"),
+        axis.text.y = element_text(color = "black"),
+        axis.title.y = element_text(color = "black"), 
+        legend.position = "none") +
+  
+  # Agregar etiquetas con el valor puntual en las barras
+  geom_text(aes(label = min_atrasos), color = "white", hjust = 1.5)+
+  scale_fill_manual(values = c("Resaltado" = "maroon4", "Normal" = "steelblue"))
+```
+
+2. Modelo
+```{r eval=FALSE, include=FALSE}
+# LIBRERIAS
+
+#install.packages("R2OpenBUGS")
+#install.packages("R2jags")
+library(R2OpenBUGS)
+library(tidyverse)
+library(bayesm)
+#library(R2jags)
+library(coda)
+
+getwd()
+setwd('/Users/Beto/Documents/AFC/Finales/Reg_avanzada')
+
+# Semilla para que sea replicable
+set.seed(2023)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+# GENERAL
+
+n <- nrow(vuelos_modelo)
+
+#variable objetivo
+y <-vuelos_modelo$atraso
+
+#variables categoricas
+ds <-vuelos_modelo$DIANOM
+ms <-vuelos_modelo$MES
+al <-vuelos_modelo$aerolinea
+ta <-vuelos_modelo$temporada_alta
+pd <-vuelos_modelo$periodo_dia
+
+# MODELO 1
+
+#-Definiendo datos-
+data<-list("n"=n,"y"=y,"ds"=ds,"ms"=ms,"al"=al,
+           "ta"=ta, "pd"=pd)
+
+#-Definiendo inits-
+inits<-function(){list(alpha=0,beta=rep(0,7),gama=rep(0,12),
+                       delta=rep(0,10),kappa=rep(0,2),lambda=rep(0,3))}
+
+#-Seleccionando parametros a monitorear-
+parameters<-c("alpha.est","beta.est","gama.est","delta.est","kappa.est","lambda.est")
+
+#-Corrida de codigo-
+#OpenBUGS
+niter <- 1000
+cadenas <-2
+quema <- 100
+adelgaz <-4
+deb_gg <- FALSE
+modelo.sim<-bugs(data,inits,parameters,model.file="txt_logit.txt",
+                n.iter=niter,n.chains=cadenas,n.burnin=quema,n.thin=adelgaz, debug=deb_gg)
+
+
+```
+
+Analisis modelo1
+```{r eval=FALSE, include=FALSE}
+#Traza de la cadena
+simula<-as.mcmc.list(modelo.sim)
+traceplot(simula)
+
+out<-modelo.sim$sims.list
+out.a<-modelo.sim$sims.array
+
+
+z1<-out.a[,1,1]
+z2<-out.a[,2,1]
+par(mfrow=c(3,2))
+plot(z1,type="l",col="grey50")
+lines(z2,col="firebrick2")
+y1<-cumsum(z1)/(1:length(z1))
+y2<-cumsum(z2)/(1:length(z2))
+ymin<-min(y1,y2)
+ymax<-max(y1,y2)
+plot(y1,type="l",col="grey50",ylim=c(ymin,ymax))
+lines(y2,col="firebrick2",ylim=c(ymin,ymax))
+hist(z1,freq=FALSE,col="grey50")
+hist(z2,freq=FALSE,col="firebrick2")
+acf(z1)
+acf(z2)
+
+
+#Resumen (estimadores)
+#OpenBUGS
+out.sum<-modelo.sim$summary
+head(out.sum[,c(1,2,3,4,5,6,7,8,9)])
+write.csv((out.sum[,c(1,2,3,4,5,6,7,8,9)]),file="pestim.csv")
+par(mfrow=c(1,1))
+
+out.dic<-modelo.sim$DIC
+```
+
