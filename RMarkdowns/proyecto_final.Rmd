@@ -579,7 +579,7 @@ vuelos |>
   kable_styling(full_width = F, latex_options = "HOLD_position")
 ```
 
-# Variable objetivo: Atraso 15 minutos
+## Variable objetivo: Atraso 15 minutos
 
 Considerando que el resultado esperado con este proyecto es predecir si un vuelo
 se retrasará o no con base en ciertas variables que lo describen, el último paso
@@ -588,7 +588,7 @@ objetivo. De acuerdo con la aerolínea original y su experiencia, un vuelo puede
 considerarse como retrasado si la diferencia en minutos entre su hora de anuncio
 y su hora de salida es igual o mayor a 15 minutos, por lo tanto se tomó de apoyo
 la variable **diff_min** también creada en este proceso de ingeniería de variables
-para crear nuestra variable objetivo llamada **atraso 15**. Esta variable
+para crear nuestra variable objetivo llamada **atraso_15**. Esta variable
 toma únicamente el valor de 1 si el vuelo se retrasó con base en la descripción
 anterior, en caso contrario toma el valor de 0. 
 
@@ -612,7 +612,7 @@ vuelos |>
   kable_styling(full_width = F, latex_options = "HOLD_position")
 ```
 
-```{r save_synthetic_2, eval=FALSE, incluse=FALSE}
+```{r save_synthetic_2, eval=FALSE, include=FALSE}
 write.csv(vuelos, "../datasets/synthetic_features2.csv")
 ```
 
