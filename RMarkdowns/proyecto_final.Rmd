@@ -420,10 +420,11 @@ Un último análisis que resulta importante considerar es la distribución de vu
 por aerolínea, de modo que se pueda entender qué aerolíneas son las que tienen
 mayor presencia de vuelos internacionales y cuáles son susceptibles a algún
 retraso en sus operaciones. Esta información puede observarse en la siguiente
-gráfica, donde se muestra el número total de registros de múltiples aerolíneas
-sin embargo se puede destacar que la mayor cantidad de registros se concentra 
-entre las aerolíneas *Aerolíneas Argentinas*, *Copa Air* y *Sky Airline*, lo cual 
-podría contaminar el modelo a implementar. 
+gráfica, la cual muestra el número total de registros de múltiples aerolíneas.
+Es importante destacar que la mayor cantidad de registros se concentra entre las 
+aerolíneas *Aerolíneas Argentinas*, *Copa Air* y *Sky Airline*, mientras que 
+para algunas otras aerolíneas la cantidad de registros es muy pequeña, como lo 
+son *Austral*, *JetSmart SPA*, *Lacsa* y *Plus Ultra Lineas Aerea*.
 
 Teniendo en cuenta esta distribución, se tomó la decisión de eliminar aquellos
 registros de vuelos que fueron operados por las aerolíneas con mayor presencia,
@@ -442,6 +443,13 @@ final_df |> group_by(OPERA) |>
   theme(plot.title = element_text(size = 12, hjust = 0.5, vjust = 1.5)) +
   sin_lineas +
   sin_leyenda
+```
+
+```{r filtering_airlines, echo=FALSE, warning=FALSE, message=FALSE}
+drop_airlines <- c("Sky Airline", "Copa Air", "Aerolineas Argentinas", "Austral",
+                   "JetSmart SPA", "Lacsa", "Plus Ultra Lineas Aereas")
+
+final_df <- final_df[!final_df$OPERA %in% drop_airlines, ]
 ```
 
 # Ingeniería de variables
@@ -600,91 +608,61 @@ representa del total de vuelos.
 vuelos <- vuelos |> mutate(atraso_15 = ifelse(diff_min >= 15, 1, 0))
 ```
 
-```{r summary_atraso_15, echo=FALSE, warning=FALSE, message=FALSE}
-vuelos |> 
-  group_by(atraso_15) |> 
-  summarise(`Número de vuelos` = n(), Porcentaje = n()/nrow(vuelos)) |>
-  mutate(`Atraso 15 minutos` = atraso_15) |>
-  mutate(`Atraso 15 minutos` = ifelse(`Atraso 15 minutos` == 1, "Atraso", "No atraso")) |>
-  select(`Atraso 15 minutos`, `Número de vuelos`, Porcentaje) |>
-  kable(caption ="Resumen del número de vuelos retrasados y en tiempo", 
-        align = "c", booktabs = T) |>
-  kable_styling(full_width = F, latex_options = "HOLD_position")
-```
-
 ```{r save_synthetic_2, eval=FALSE, include=FALSE}
 write.csv(vuelos, "../datasets/synthetic_features2.csv")
 ```
 
-```{r include = FALSE, eval=FALSE}
-dataf <- read.csv("../datasets/synthetic_features.csv")
-
-dataf$Fecha.I <- as.POSIXct(dataf$Fecha.I, format = "%Y-%m-%d")
-dataf$Fecha.O <- as.POSIXct(dataf$Fecha.O, format = "%Y-%m-%d")
-
-params <- c(dataf$OPERA == 'Aeromexico' | dataf$OPERA == 'Air Canada' | dataf$OPERA == 'Air France' | dataf$OPERA == 'American Airlines' | dataf$OPERA == 'Avianca' | dataf$OPERA == 'British Airways' | dataf$OPERA == 'Delta Air' | dataf$OPERA == 'Iberia' | dataf$OPERA == 'K.L.M.' | dataf$OPERA == 'United Airlines')
-
-lim_minutos <- 15
-
-vuelos <- subset(dataf, select = -X) %>%
-  filter(params) %>%
-  mutate(dif_day = as.numeric(difftime(Fecha.O, Fecha.I, units = "days")),
-         dif_day = str_replace(dif_day, "days", ""),
-         dif_min_HoraO = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), Hora.O)), as.POSIXct(paste(Sys.Date(), "00:00:00")), units = "mins")),
-         dif_min_HoraI = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), "24:00:00")), as.POSIXct(paste(Sys.Date(), Hora.I)), units = "mins")),
-         suma_dif_min = dif_min_HoraO + dif_min_HoraI) %>%
-  mutate(dif_minutos = ifelse(dif_day == "0", dif_min, suma_dif_min),
-         dif_minutos = str_replace(dif_minutos, "mins", ""),
-         dif_minutos = as.numeric(dif_minutos)) %>%
-  mutate(atraso = ifelse(dif_minutos > lim_minutos, 1, 0)) %>%
-  mutate(aerolinea = OPERA) %>%
-  select(-c(1:8),-dif_min_HoraO, -dif_min_HoraI, -suma_dif_min, -TIPOVUELO,-dif_min,-atraso_15)
+```{r read_synthetic_2, eval=FALSE, include=FALSE}
+vuelos <- read.csv("../datasets/synthetic_features2.csv")
+vuelos <- vuelos |> select(-X)
 ```
 
-```{r eval=FALSE, include=FALSE}
+```{r atraso_feature, echo=FALSE, warning=FALSE, message=FALSE}
 # Filtramos la base de datos con 10 aerolineas y quito columna ids 
-
-dataf <- read.csv("../datasets/synthetic_features.csv")
-
-dataf$Fecha.I <- as.POSIXct(dataf$Fecha.I, format = "%Y-%m-%d")
-dataf$Fecha.O <- as.POSIXct(dataf$Fecha.O, format = "%Y-%m-%d")
-
-params <- c(dataf$OPERA == 'Aeromexico' | dataf$OPERA == 'Air Canada' | dataf$OPERA == 'Air France' | dataf$OPERA == 'American Airlines' | dataf$OPERA == 'Avianca' | dataf$OPERA == 'British Airways' | dataf$OPERA == 'Delta Air' | dataf$OPERA == 'Iberia' | dataf$OPERA == 'K.L.M.' | dataf$OPERA == 'United Airlines')
+vuelos$Fecha_I <- as.POSIXct(vuelos$Fecha_I, format = "%Y-%m-%d")
+vuelos$Fecha_O <- as.POSIXct(vuelos$Fecha_O, format = "%Y-%m-%d")
 
 lim_minutos <- 15
 
-vuelos <- subset(dataf, select = -X) %>%
-  filter(params) %>%
-  mutate(dif_day = as.numeric(difftime(Fecha.O, Fecha.I, units = "days")),
+vuelos <- vuelos |>
+  mutate(dif_day = as.numeric(difftime(Fecha_O, Fecha_I, units = "days")),
          dif_day = str_replace(dif_day, "days", ""),
-         dif_min_HoraO = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), Hora.O)), as.POSIXct(paste(Sys.Date(), "00:00:00")), units = "mins")),
-         dif_min_HoraI = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), "24:00:00")), as.POSIXct(paste(Sys.Date(), Hora.I)), units = "mins")),
-         suma_dif_min = dif_min_HoraO + dif_min_HoraI) %>%
-  mutate(dif_minutos = ifelse(dif_day == "0", dif_min, suma_dif_min),
+         dif_min_HoraO = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), Hora_O)), as.POSIXct(paste(Sys.Date(), "00:00:00")), units = "mins")),
+         dif_min_HoraI = as.numeric(difftime(as.POSIXct(paste(Sys.Date(), "24:00:00")), as.POSIXct(paste(Sys.Date(), Hora_I)), units = "mins")),
+         suma_dif_min = dif_min_HoraO + dif_min_HoraI) |>
+  mutate(dif_minutos = ifelse(dif_day == "0", diff_min, suma_dif_min),
          dif_minutos = str_replace(dif_minutos, "mins", ""),
-         dif_minutos = as.numeric(dif_minutos)) %>%
-  mutate(atraso = ifelse(dif_minutos > lim_minutos, 1, 0)) %>%
-  mutate(aerolinea = OPERA) %>%
-  select(-c(1:8),-dif_min_HoraO, -dif_min_HoraI, -suma_dif_min, -TIPOVUELO,-dif_min,-atraso_15)
+         dif_minutos = as.numeric(dif_minutos)) |>
+  mutate(atraso = ifelse(dif_minutos > lim_minutos, 1, 0)) |>
+  mutate(aerolinea = OPERA) |>
+  select(-c(1:8),-dif_min_HoraO, -dif_min_HoraI, -suma_dif_min,-diff_min,-atraso_15)
+```
 
+```{r summary_atraso, echo=FALSE, warning=FALSE, message=FALSE}
+vuelos |> 
+  group_by(atraso) |> 
+  summarise(`Número de vuelos` = n(), Porcentaje = n()/nrow(vuelos)) |>
+  mutate(atraso= ifelse(atraso == 1, "Atraso", "No atraso")) |>
+  kable(caption ="Resumen del número de vuelos retrasados y no retrasados", 
+        align = "c", booktabs = T) |>
+  kable_styling(full_width = F, latex_options = "HOLD_position")
 ```
 
 Base para modelo
-```{r eval=FALSE, include=FALSE}
-meses <- c("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-           "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
+```{r treatment_model, include=FALSE, echo=FALSE, message=FALSE}
 dia <- c("Lunes","Martes","Miercoles","Jueves","Viernes","Sabado","Domingo")
 pdia <- c("mañana","tarde","noche")
-aerol <- c("Aeromexico","Air Canada","Air France","American Airlines",
-           "Avianca","British Airways","Delta Air","Iberia","K.L.M.","United Airlines")
+aerol <- c("Aeromexico", "Air Canada", "Air France", "Alitalia", "American Airlines",
+           "Avianca", "British Airways", "Delta Air", "Gol Trans", "Iberia", 
+           "K.L.M.", "Latin American Wings", "Oceanair Linhas Aereas",
+           "Qantas Airways", "United Airlines")
 
 #Tener todas las variables del modelo en numericas iniciando en 1 excepto la var objetivo va de 0 a 1
 vuelos_modelo <- vuelos |>
   mutate(temporada_alta = recode(temporada_alta, `1` = 2, `0` = 1))|>
-  mutate(MES = recode(MES, !!!setNames(1:12, meses))) |>
   mutate(DIANOM = recode(DIANOM, !!!setNames(1:7, dia))) |>
   mutate(periodo_dia = recode(periodo_dia, !!!setNames(1:3, pdia))) |>
-  mutate(aerolinea = recode(aerolinea, !!!setNames(1:10, aerol)))
+  mutate(aerolinea = recode(OPERA, !!!setNames(1:15, aerol)))
 
 head(vuelos_modelo)
 ```
@@ -702,7 +680,7 @@ vuelos_tbl <- vuelos |>
 
 
 GrafiCas eda
-```{r eval=FALSE, include=FALSE}
+```{r}
 #GRAFICA TOTAL VUELOS
 vuelos_tbl$resaltado <- ifelse(vuelos_tbl$OPERA == "Air Canada", "Resaltado", "Normal")
 vuelos_tbl <- vuelos_tbl[order(-vuelos_tbl$num_vuelos), ]
